@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module test_pulse_generator;
+module test_main;
 
 parameter CLK_HZ = 12_000_000;
 parameter CLK_PERIOD_NS = (1_000_000_000/CLK_HZ); // Approximation.

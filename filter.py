@@ -1,6 +1,6 @@
 #!python
 
-from numpy import cos, sin, pi, absolute, arange
+from numpy import cos, sin, pi, absolute, arange, binary_repr
 from scipy.signal import kaiserord, lfilter, firwin, freqz
 from pylab import figure, clf, plot, xlabel, ylabel, xlim, ylim, title, grid, axes, show
 
@@ -100,4 +100,18 @@ plot(t[N-1:]-delay, filtered_x[N-1:], 'g', linewidth=4)
 xlabel('t')
 grid(True)
 
-show()
+# show()
+
+# TRANSLATE FOR SYSTEM VERILOG
+
+prepared_taps = (taps * 2**12).astype(int)
+
+indent = " " * 4
+verilog_taps = """"""
+for i, tap in enumerate(prepared_taps):
+    verilog_taps += f"""{indent}signed logic [11:0] tap{i};
+{indent}tap{i} = 12'd{tap};
+"""
+
+print(verilog_taps)
+print("Done!")

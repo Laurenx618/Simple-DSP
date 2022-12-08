@@ -1,117 +1,232 @@
-#!python
-
-from numpy import cos, sin, pi, absolute, arange, binary_repr
+from numpy import cos, sin, pi, absolute, arange, binary_repr, log2, ceil
 from scipy.signal import kaiserord, lfilter, firwin, freqz
 from pylab import figure, clf, plot, xlabel, ylabel, xlim, ylim, title, grid, axes, show
 
+class FirGenerator:
+    def __init__(self, n: int = 400, hdl_dir: str = "./hdl") -> None:
+        self.n_samples = n
+        self.n_sample_bits = 16
+        self.n_tap_bits = 16
+        self.hdl_dir = hdl_dir
 
-#------------------------------------------------
-# Create a signal for demonstration.
-#------------------------------------------------
+        self.generate_filter_params()
+        self.n_output_bits = self.n_sample_bits + self.n_tap_bits + int(ceil(log2(len(self.taps))))
 
-sample_rate = 100.0
-nsamples = 400
-t = arange(nsamples) / sample_rate
-x = cos(2*pi*0.5*t) + 0.2*sin(2*pi*2.5*t+0.1) + \
-        0.2*sin(2*pi*15.3*t) + 0.1*sin(2*pi*16.7*t + 0.1) + \
-            0.1*sin(2*pi*23.45*t+.8)
+        sv = self.generate_module()
+        self.write_file(sv)
+
+    def write_file(self, txt: str) -> None:
+        f = open(f"{self.hdl_dir}/fir.sv", "w")
+        f.write(txt)
+        f.close()
+
+    def generate_module(self) -> str:
+        tap_definitions, taps = self.generate_taps()
+        verilog_summation, verilog_multipliers = self.generate_multipliers()
+        verilog_buffers, verilog_registers = self.generate_registers()
+        sv = f"""`timescale 1ns/1ps
+`default_nettype none
+
+module fir #(clk, rst, ena, sample, out);
+
+    input wire clk, rst, ena;
+    input wire [{self.n_samples-1}:0] sample;
+    output wire [{self.n_output_bits - 1}:0] out;
+    logic ena;
 
 
-#------------------------------------------------
-# Create a FIR filter and apply it to x.
-#------------------------------------------------
+    ////// TAP COEFFICIENTS //////
+{tap_definitions}
+{taps}
 
-# The Nyquist rate of the signal.
-nyq_rate = sample_rate / 2.0
+    ////// SAMPLE SHIFT REGISTER //////
+{verilog_buffers}
+{verilog_registers}
 
-# The desired width of the transition from pass to stop,
-# relative to the Nyquist rate.  We'll design the filter
-# with a 5 Hz transition width.
-width = 5.0/nyq_rate
+    ////// LINEAR COMBINATION SAMPLES WITH TAPS //////
+{verilog_multipliers}
+{verilog_summation}
 
-# The desired attenuation in the stop band, in dB.
-ripple_db = 60.0
+endmodule"""
+        return sv
 
-# Compute the order and Kaiser parameter for the FIR filter.
-N, beta = kaiserord(ripple_db, width)
+    def generate_filter_params(self):
+        #------------------------------------------------
+        # Create a signal for demonstration.
+        #------------------------------------------------
+        self.sample_rate = 100.0
+        nsamples = 400
+        self.t = arange(nsamples) / self.sample_rate
+        self.x = cos(2*pi*0.5*self.t) + 0.2*sin(2*pi*2.5*self.t+0.1) + \
+                0.2*sin(2*pi*15.3*self.t) + 0.1*sin(2*pi*16.7*self.t + 0.1) + \
+                    0.1*sin(2*pi*23.45*self.t+.8)
 
-# The cutoff frequency of the filter.
-cutoff_hz = 10.0
 
-# Use firwin with a Kaiser window to create a lowpass FIR filter.
-taps = firwin(N, cutoff_hz/nyq_rate, window=('kaiser', beta))
+        #------------------------------------------------
+        # Create a FIR filter and apply it to x.
+        #------------------------------------------------
 
-# Use lfilter to filter x with the FIR filter.
-filtered_x = lfilter(taps, 1.0, x)
+        # The Nyquist rate of the signal.
+        self.nyq_rate = self.sample_rate / 2.0
 
-#------------------------------------------------
-# Plot the FIR filter coefficients.
-#------------------------------------------------
+        # The desired width of the transition from pass to stop,
+        # relative to the Nyquist rate.  We'll design the filter
+        # with a 5 Hz transition width.
+        width = 5.0/self.nyq_rate
 
-figure(1)
-plot(taps, 'bo-', linewidth=2)
-title('Filter Coefficients (%d taps)' % N)
-grid(True)
+        # The desired attenuation in the stop band, in dB.
+        ripple_db = 60.0
 
-#------------------------------------------------
-# Plot the magnitude response of the filter.
-#------------------------------------------------
+        # Compute the order and Kaiser parameter for the FIR filter.
+        self.N, beta = kaiserord(ripple_db, width)
 
-figure(2)
-clf()
-w, h = freqz(taps, worN=8000)
-plot((w/pi)*nyq_rate, absolute(h), linewidth=2)
-xlabel('Frequency (Hz)')
-ylabel('Gain')
-title('Frequency Response')
-ylim(-0.05, 1.05)
-grid(True)
+        # The cutoff frequency of the filter.
+        cutoff_hz = 10.0
 
-# Upper inset plot.
-ax1 = axes([0.42, 0.6, .45, .25])
-plot((w/pi)*nyq_rate, absolute(h), linewidth=2)
-xlim(0,8.0)
-ylim(0.9985, 1.001)
-grid(True)
+        # Use firwin with a Kaiser window to create a lowpass FIR filter.
+        self.taps = firwin(self.N, cutoff_hz/self.nyq_rate, window=('kaiser', beta))
 
-# Lower inset plot
-ax2 = axes([0.42, 0.25, .45, .25])
-plot((w/pi)*nyq_rate, absolute(h), linewidth=2)
-xlim(12.0, 20.0)
-ylim(0.0, 0.0025)
-grid(True)
+        # Use lfilter to filter x with the FIR filter.
+        self.filtered_x = lfilter(self.taps, 1.0, self.x)
 
-#------------------------------------------------
-# Plot the original and filtered signals.
-#------------------------------------------------
+    def plot_filter_params(self):
+        #------------------------------------------------
+        # Plot the FIR filter coefficients.
+        #------------------------------------------------
 
-# The phase delay of the filtered signal.
-delay = 0.5 * (N-1) / sample_rate
+        figure(1)
+        plot(self.taps, 'bo-', linewidth=2)
+        title('Filter Coefficients (%d taps)' % self.N)
+        grid(True)
 
-figure(3)
-# Plot the original signal.
-plot(t, x)
-# Plot the filtered signal, shifted to compensate for the phase delay.
-plot(t-delay, filtered_x, 'r-')
-# Plot just the "good" part of the filtered signal.  The first N-1
-# samples are "corrupted" by the initial conditions.
-plot(t[N-1:]-delay, filtered_x[N-1:], 'g', linewidth=4)
+        #------------------------------------------------
+        # Plot the magnitude response of the filter.
+        #------------------------------------------------
 
-xlabel('t')
-grid(True)
+        figure(2)
+        clf()
+        w, h = freqz(self.taps, worN=8000)
+        plot((w/pi)*self.nyq_rate, absolute(h), linewidth=2)
+        xlabel('Frequency (Hz)')
+        ylabel('Gain')
+        title('Frequency Response')
+        ylim(-0.05, 1.05)
+        grid(True)
 
-# show()
+        # Upper inset plot.
+        ax1 = axes([0.42, 0.6, .45, .25])
+        plot((w/pi)*self.nyq_rate, absolute(h), linewidth=2)
+        xlim(0,8.0)
+        ylim(0.9985, 1.001)
+        grid(True)
 
-# TRANSLATE FOR SYSTEM VERILOG
+        # Lower inset plot
+        ax2 = axes([0.42, 0.25, .45, .25])
+        plot((w/pi)*self.nyq_rate, absolute(h), linewidth=2)
+        xlim(12.0, 20.0)
+        ylim(0.0, 0.0025)
+        grid(True)
 
-prepared_taps = (taps * 2**12).astype(int)
+        #------------------------------------------------
+        # Plot the original and filtered signals.
+        #------------------------------------------------
 
-indent = " " * 4
-verilog_taps = """"""
-for i, tap in enumerate(prepared_taps):
-    verilog_taps += f"""{indent}signed logic [11:0] tap{i};
-{indent}tap{i} = 12'd{tap};
-"""
+        # The phase delay of the filtered signal.
+        delay = 0.5 * (self.N-1) / self.sample_rate
 
-print(verilog_taps)
+        figure(3)
+        # Plot the original signal.
+        plot(self.t, self.x)
+        # Plot the filtered signal, shifted to compensate for the phase delay.
+        plot(self.t-delay, self.filtered_x, 'r-')
+        # Plot just the "good" part of the filtered signal.  The first N-1
+        # samples are "corrupted" by the initial conditions.
+        plot(self.t[self.N-1:]-delay, self.filtered_x[self.N-1:], 'g', linewidth=4)
+
+        xlabel('t')
+        grid(True)
+
+        show()
+
+    def generate_taps(self):
+        # TRANSLATE FOR SYSTEM VERILOG
+
+        prepared_taps = (self.taps * 2**self.n_tap_bits).astype(int)
+
+        indent = " " * 4
+        verilog_taps = ""
+        verilog_tap_definitions = f"{indent}signed logic [{self.n_tap_bits - 1}:0]"
+        for i, tap in enumerate(prepared_taps):
+            verilog_tap_definitions += (" " if i == 0 else ", ") + f"tap{i}"
+            verilog_taps += f"""{indent}always_comb tap{i} = {self.n_tap_bits}'d{tap};\n"""
+        verilog_tap_definitions += ";"
+
+        # wire [7:0] a0, a1, a2, a3;
+        # alawys_comb a0 = 5;
+        # alawys_comb a0 = 6;
+        # alawys_comb a0 = 7;
+        # alawys_comb a0 = 9;
+
+        return verilog_tap_definitions, verilog_taps
+
+    def generate_multipliers(self):
+        indent = " " * 4
+        verilog_multipliers = ""
+        verilog_summation = f"{indent}always_comb out ="
+        for i in range(len(self.taps)):
+            verilog_multipliers += f"""{indent}multiplied{i} = buf{i} * tap{i};\n"""
+            verilog_summation += (" " if i == 0 else " + ") + f"multiplied{i}"
+        verilog_summation += ";"
+
+        # always_comb begin
+        # multiplied0 = buff0*a0;
+        # multiplied1 = buff1*a1;
+        # multiplied2 = buff2*a2;
+        # multiplied3 = buff3*a3;
+        # end
+        # always_comb out = multiplied0 + multiplied1 + multiplied2 + multiplied3;
+
+        return verilog_summation, verilog_multipliers
+
+    def generate_registers(self):
+        indent = " " * 4
+        verilog_registers = ""
+        verilog_buffers = f"{indent}signed logic [{self.n_sample_bits - 1}:0]"
+        for i in range(len(self.taps)):
+            verilog_buffers += (" " if i == 0 else ", ") + f"buf{i}"
+            verilog_registers += f"""{indent}register buffer{i}(.clk(clk), .ena(ena), .rst(rst), .d({"sample" if i == 0 else f"buf{i - 1}"}), .q(buf{i}));\n"""
+        verilog_buffers += ";"
+
+        # register(.clk(clk), .ena(ena), .rst(rst), .d(sample), .q(buff0));
+        # register(.clk(clk), .ena(ena), .rst(rst), .d(buff0), .q(buff1));
+        # register(.clk(clk), .ena(ena), .rst(rst), .d(buff1), .q(buff2));
+        # register(.clk(clk), .ena(ena), .rst(rst), .d(buff2), .q(buff3));
+
+        return verilog_buffers, verilog_registers
+
+    def generate_samples(self):
+        prepared_x_vals = (self.x * 2**self.n_sample_bits).astype(int)
+
+        verilog_x_vals = f"signed integer [{self.n_samples}] x_vals = ["
+        for i, x_val in enumerate(prepared_x_vals):
+            verilog_x_vals += ("" if i == 0 else ", ") + str(x_val)
+        verilog_x_vals += "];"
+
+        return verilog_x_vals
+
+    def generate_correct_output(self):
+        prepared_outputs = (self.filtered_x * 2**(self.n_sample_bits + self.n_tap_bits)).astype(int)
+
+        verilog_outputs = f"signed time [{self.n_samples}] correct_outputs = ["
+        for i, output in enumerate(prepared_outputs):
+            verilog_outputs += ("" if i == 0 else ", ") + str(output)
+        verilog_outputs += "];"
+
+        return verilog_outputs
+
+    def generate_test_bench(self):
+        samples = self.generate_samples()
+        return samples
+
+F = FirGenerator()
 print("Done!")

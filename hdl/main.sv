@@ -14,10 +14,10 @@ logic ena;
 
 logic [N-1:0] buff0, buff1, buff2, buff3;
 logic [N-1:0] multiplied0, multiplied1, multiplied2, multiplied3;
-wire [7:0] a0, a1, a2, a3; 
+wire [7:0] a0, a1, a2, a3;
 
 
-register(.clk(clk), .ena(ena), .rst(rst), .d(sample), .q(buff0)); 
+register(.clk(clk), .ena(ena), .rst(rst), .d(sample), .q(buff0));
 register(.clk(clk), .ena(ena), .rst(rst), .d(buff0), .q(buff1));
 register(.clk(clk), .ena(ena), .rst(rst), .d(buff1), .q(buff2));
 register(.clk(clk), .ena(ena), .rst(rst), .d(buff2), .q(buff3));

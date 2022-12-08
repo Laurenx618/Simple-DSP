@@ -11,6 +11,9 @@ VVP_POST=-fst
 test_main : main.sv test_main.sv
 	${IVERILOG} $^ -o test_main.bin && ${VVP} test_main.bin ${VVP_POST}
 
+test_fir : hdl/fir.sv tests/test_fir.sv
+	${IVERILOG} $^ -o test_fir.bin && ${VVP} test_fir.bin ${VVP_POST}
+
 # add targets for your tests of your adders and muxes here!
 
 

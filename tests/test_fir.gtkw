@@ -1,0 +1,25 @@
+[*]
+[*] GTKWave Analyzer v3.3.104 (w)1999-2020 BSI
+[*] Fri Dec  9 04:36:52 2022
+[*]
+[dumpfile] "/home/ieykamp/Olin/CompArch/Simple-DSP/test_fir.fst"
+[dumpfile_mtime] "Fri Dec  9 04:28:15 2022"
+[dumpfile_size] 3329
+[savefile] "/home/ieykamp/Olin/CompArch/Simple-DSP/tests/test_fir.gtkw"
+[timestart] 0
+[size] 1846 1016
+[pos] -101 -101
+*-15.891873 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] test_fir.
+[sst_width] 233
+[signals_width] 241
+[sst_expanded] 1
+[sst_vpaned_height] 289
+@28
+test_fir.UUT.clk
+test_fir.UUT.ena
+test_fir.UUT.rst
+@22
+test_fir.UUT.out[38:0]
+[pattern_trace] 1
+[pattern_trace] 0

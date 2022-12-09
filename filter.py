@@ -248,18 +248,19 @@ always_comb packed_samples = {{"""
         prepared_x_vals = (self.x * 2**self.n_sample_bits).astype(int)
 
         verilog_samples = f"""logic [{self.n_sample_bits - 1}:0] samples[0:{self.n_samples - 1}];
-always_comb begin """
+always_comb begin 
+"""
         for i in range(self.n_samples):
             # verilog_x_vals += ("" if i == 0 else ", ") + str(x_val)
             verilog_samples += f"samples[{i}] = packed_samples[{self.n_sample_bits * (i + 1) - 1}:{self.n_sample_bits * (i)}]; "
-        verilog_samples += "end"
+        verilog_samples += "\nend"
         return verilog_samples
 
     def generate_correct_output(self):
         prepared_outputs = (self.filtered_x * 2**(self.n_sample_bits + self.n_tap_bits)).astype(int)
 
         verilog_outputs = f"""logic [{self.n_output_bits * self.n_samples - 1}:0] packed_outputs;
-always_comb packed_correct_outputs = {{"""
+always_comb packed_outputs = {{"""
         for i, output in enumerate(prepared_outputs):
             verilog_outputs += f"{'' if i == 0 else ', '}{'-' if output < 0 else ''}{self.n_output_bits}'sd{abs(output)}"
         verilog_outputs += "};"
@@ -268,12 +269,16 @@ always_comb packed_correct_outputs = {{"""
 
     def generate_output_array(self):
         verilog_output = f"""logic [{self.n_output_bits - 1}:0] correct_outputs[0:{self.n_samples - 1}];
-always_comb begin """
+always_comb begin
+"""
         for i in range(self.n_samples):
             verilog_output += f"correct_outputs[{i}] = packed_outputs[{self.n_output_bits * (i + 1) - 1}:{self.n_output_bits * (i)}]; "
-        verilog_output += "end"
+        verilog_output += "\nend"
 
         return verilog_output
 
 F = FirGenerator()
+
+F.plot_filter_params()
+
 print("Done!")

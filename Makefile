@@ -16,7 +16,8 @@ test_fir : hdl/fir.sv tests/test_fir.sv
 
 # add targets for your tests of your adders and muxes here!
 
-
+waves_fir:
+	gtkwave test_fir.fst -a tests/test_fir.gtkw
 
 # Call this to clean up all your generated files
 clean:

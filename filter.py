@@ -3,20 +3,28 @@ from scipy.signal import kaiserord, lfilter, firwin, freqz
 from pylab import figure, clf, plot, xlabel, ylabel, xlim, ylim, title, grid, axes, show
 
 class FirGenerator:
-    def __init__(self, n: int = 400, hdl_dir: str = "./hdl") -> None:
+    def __init__(self, n: int = 400, hdl_dir: str = "./hdl", test_dir: str = "./tests") -> None:
         self.n_samples = n
         self.n_sample_bits = 16
         self.n_tap_bits = 16
         self.hdl_dir = hdl_dir
+        self.test_dir = test_dir
 
         self.generate_filter_params()
         self.n_output_bits = self.n_sample_bits + self.n_tap_bits + int(ceil(log2(len(self.taps))))
 
         sv = self.generate_module()
-        self.write_file(sv)
+        test_code = self.generate_test_bench()
+        self.write_file(sv, is_test = False)
+        self.write_file(test_code, is_test = True)
 
-    def write_file(self, txt: str) -> None:
-        f = open(f"{self.hdl_dir}/fir.sv", "w")
+    def write_file(self, txt: str, is_test: bool = False) -> None:
+        if is_test:
+            filename = f"{self.test_dir}/fir_copy_code.txt"
+        else:
+            filename = f"{self.hdl_dir}/fir.sv"
+
+        f = open(filename, "w")
         f.write(txt)
         f.close()
 
@@ -48,6 +56,21 @@ module fir #(clk, rst, ena, sample, out);
 {verilog_summation}
 
 endmodule"""
+        return sv
+
+    def generate_test_bench(self) -> str:
+        sample_array = self.generate_sample_array()
+        output_array = self.generate_output_array()
+        samples = self.generate_samples()
+        correct_output = self.generate_correct_output()
+        sv = f"""//// COPY THE BELOW CODE ////
+
+{samples}
+{sample_array}
+
+{correct_output}
+{output_array}
+"""
         return sv
 
     def generate_filter_params(self):
@@ -207,26 +230,44 @@ endmodule"""
     def generate_samples(self):
         prepared_x_vals = (self.x * 2**self.n_sample_bits).astype(int)
 
-        verilog_x_vals = f"signed integer [{self.n_samples}] x_vals = ["
+        verilog_x_vals = "always_comb correct_outputs = {"
         for i, x_val in enumerate(prepared_x_vals):
-            verilog_x_vals += ("" if i == 0 else ", ") + str(x_val)
-        verilog_x_vals += "];"
+            verilog_x_vals += f"{'' if i == 0 else ', '}{'-' if x_val < 0 else ''}{self.n_sample_bits}sd'{abs(x_val)}"
+        verilog_x_vals += "};"
 
         return verilog_x_vals
+
+    def generate_sample_array(self):
+        prepared_x_vals = (self.x * 2**self.n_sample_bits).astype(int)
+
+        verilog_samples = f"""logic [{self.n_sample_bits - 1}:0] unpacked_samples[0:{self.n_samples - 1}];
+always_comb begin
+"""
+        for i in range(self.n_samples):
+            # verilog_x_vals += ("" if i == 0 else ", ") + str(x_val)
+            verilog_samples += f"unpacked_samples[{i}] = samples[{self.n_sample_bits * (i + 1) - 1}:{self.n_sample_bits * (i)}];\n"
+        return verilog_samples
 
     def generate_correct_output(self):
         prepared_outputs = (self.filtered_x * 2**(self.n_sample_bits + self.n_tap_bits)).astype(int)
 
-        verilog_outputs = f"signed time [{self.n_samples}] correct_outputs = ["
+        verilog_outputs = "always_comb correct_outputs = {"
         for i, output in enumerate(prepared_outputs):
-            verilog_outputs += ("" if i == 0 else ", ") + str(output)
-        verilog_outputs += "];"
+            verilog_outputs += f"{'' if i == 0 else ', '}{'-' if output < 0 else ''}{self.n_output_bits}sd'{abs(output)}"
+        verilog_outputs += "};"
 
         return verilog_outputs
 
-    def generate_test_bench(self):
-        samples = self.generate_samples()
-        return samples
+    def generate_output_array(self):
+        verilog_output = f"""logic [{self.n_output_bits - 1}:0] correct_outputs[0:{self.n_samples - 1}];
+always_comb begin
+"""
+        verilog_output = ""
+        for i in range(self.n_samples):
+            verilog_output += f"unpacked_outputs[{i}] = correct_outputs[{self.n_output_bits * (i + 1) - 1}:{self.n_output_bits * (i)}];\n"
+        verilog_output += "end"
+
+        return verilog_output
 
 F = FirGenerator()
 print("Done!")

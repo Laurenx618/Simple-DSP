@@ -60,8 +60,9 @@ initial begin
   
   $display("Checking all inputs.");
   $display("counter, next_sample, out, correct_out");
+  shift_ena = 1'b0;
   rst = 1'b1;
-  shift_ena = 1'b1;
+  #1 rst = 1'b0;
   for (i = 0; i < 400; i = i + 1) begin
     #1 clk = 1'b0;
     #1 counter = i;

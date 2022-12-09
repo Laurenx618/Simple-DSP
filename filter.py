@@ -30,17 +30,17 @@ class FirGenerator:
 
     def generate_module(self) -> str:
         tap_definitions, taps = self.generate_taps()
-        verilog_summation, verilog_multipliers = self.generate_multipliers()
+        verilog_multiplied_definitions, verilog_multipliers, verilog_summation = self.generate_multipliers()
         verilog_buffers, verilog_registers = self.generate_registers()
         sv = f"""`timescale 1ns/1ps
 `default_nettype none
+`include "hdl/register.sv"
 
-module fir #(clk, rst, ena, sample, out);
+module fir(clk, rst, ena, sample, out);
 
     input wire clk, rst, ena;
-    input wire [{self.n_samples-1}:0] sample;
-    output wire [{self.n_output_bits - 1}:0] out;
-    logic ena;
+    input wire [{self.n_sample_bits-1}:0] sample;
+    output logic [{self.n_output_bits - 1}:0] out;
 
 
     ////// TAP COEFFICIENTS //////
@@ -52,6 +52,7 @@ module fir #(clk, rst, ena, sample, out);
 {verilog_registers}
 
     ////// LINEAR COMBINATION SAMPLES WITH TAPS //////
+{verilog_multiplied_definitions}
 {verilog_multipliers}
 {verilog_summation}
 
@@ -178,10 +179,10 @@ endmodule"""
 
         indent = " " * 4
         verilog_taps = ""
-        verilog_tap_definitions = f"{indent}signed logic [{self.n_tap_bits - 1}:0]"
+        verilog_tap_definitions = f"{indent}logic signed [{self.n_tap_bits - 1}:0]"
         for i, tap in enumerate(prepared_taps):
             verilog_tap_definitions += (" " if i == 0 else ", ") + f"tap{i}"
-            verilog_taps += f"""{indent}always_comb tap{i} = {self.n_tap_bits}'d{tap};\n"""
+            verilog_taps += f"""{indent}always_comb tap{i} = {"-" if tap < 0 else ""}{self.n_tap_bits}'sd{abs(tap)};\n"""
         verilog_tap_definitions += ";"
 
         # wire [7:0] a0, a1, a2, a3;
@@ -195,11 +196,15 @@ endmodule"""
     def generate_multipliers(self):
         indent = " " * 4
         verilog_multipliers = ""
+        
+        verilog_multiplied_definitions = f"{indent}logic signed [{self.n_sample_bits + self.n_tap_bits - 1}:0]"
         verilog_summation = f"{indent}always_comb out ="
         for i in range(len(self.taps)):
-            verilog_multipliers += f"""{indent}multiplied{i} = buf{i} * tap{i};\n"""
+            verilog_multiplied_definitions += (" " if i == 0 else ", ") + f"multiplied{i}"
+            verilog_multipliers += f"""{indent}always_comb multiplied{i} = buf{i} * tap{i};\n"""
             verilog_summation += (" " if i == 0 else " + ") + f"multiplied{i}"
         verilog_summation += ";"
+        verilog_multiplied_definitions += ";"
 
         # always_comb begin
         # multiplied0 = buff0*a0;
@@ -209,15 +214,15 @@ endmodule"""
         # end
         # always_comb out = multiplied0 + multiplied1 + multiplied2 + multiplied3;
 
-        return verilog_summation, verilog_multipliers
+        return verilog_multiplied_definitions, verilog_multipliers, verilog_summation
 
     def generate_registers(self):
         indent = " " * 4
         verilog_registers = ""
-        verilog_buffers = f"{indent}signed logic [{self.n_sample_bits - 1}:0]"
+        verilog_buffers = f"{indent}logic signed [{self.n_sample_bits - 1}:0]"
         for i in range(len(self.taps)):
             verilog_buffers += (" " if i == 0 else ", ") + f"buf{i}"
-            verilog_registers += f"""{indent}register buffer{i}(.clk(clk), .ena(ena), .rst(rst), .d({"sample" if i == 0 else f"buf{i - 1}"}), .q(buf{i}));\n"""
+            verilog_registers += f"""{indent}register #(.N({self.n_tap_bits})) buffer{i}(.clk(clk), .ena(ena), .rst(rst), .d({"sample" if i == 0 else f"buf{i - 1}"}), .q(buf{i}));\n"""
         verilog_buffers += ";"
 
         # register(.clk(clk), .ena(ena), .rst(rst), .d(sample), .q(buff0));
@@ -230,7 +235,11 @@ endmodule"""
     def generate_samples(self):
         prepared_x_vals = (self.x * 2**self.n_sample_bits).astype(int)
 
+<<<<<<< HEAD
         verilog_x_vals = "always_comb correct_outputs = {"
+=======
+        verilog_x_vals = f"logic signed [{self.n_samples}] x_vals = ["
+>>>>>>> df747969fc0b60b8601a610741decde12aeced5e
         for i, x_val in enumerate(prepared_x_vals):
             verilog_x_vals += f"{'' if i == 0 else ', '}{'-' if x_val < 0 else ''}{self.n_sample_bits}sd'{abs(x_val)}"
         verilog_x_vals += "};"

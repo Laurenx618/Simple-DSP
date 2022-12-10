@@ -234,19 +234,17 @@ endmodule"""
         return verilog_buffers, verilog_registers
 
     def generate_samples(self):
-        prepared_x_vals = (self.x * 2**self.n_sample_bits).astype(int)
+        prepared_x_vals = (self.x * 2**(self.n_sample_bits - 4)).astype(int)
 
         verilog_x_vals = f"""logic [{self.n_sample_bits * self.n_samples - 1}:0] packed_samples;
 always_comb packed_samples = {{"""
-        for i, x_val in enumerate(prepared_x_vals):
+        for i, x_val in enumerate(prepared_x_vals[::-1]):
             verilog_x_vals += f"{'' if i == 0 else ', '}{'-' if x_val < 0 else ''}{self.n_sample_bits}'sd{abs(x_val)}"
         verilog_x_vals += "};"
 
         return verilog_x_vals
 
     def generate_sample_array(self):
-        prepared_x_vals = (self.x * 2**self.n_sample_bits).astype(int)
-
         verilog_samples = f"""logic [{self.n_sample_bits - 1}:0] samples[0:{self.n_samples - 1}];
 always_comb begin 
 """
@@ -257,7 +255,7 @@ always_comb begin
         return verilog_samples
 
     def generate_correct_output(self):
-        prepared_outputs = (self.filtered_x * 2**(self.n_sample_bits + self.n_tap_bits)).astype(int)
+        prepared_outputs = (self.filtered_x * 2**(self.n_sample_bits - 4 + self.n_tap_bits)).astype(int)
 
         verilog_outputs = f"""logic [{self.n_output_bits * self.n_samples - 1}:0] packed_outputs;
 always_comb packed_outputs = {{"""

@@ -259,7 +259,7 @@ always_comb begin
 
         verilog_outputs = f"""logic [{self.n_output_bits * self.n_samples - 1}:0] packed_outputs;
 always_comb packed_outputs = {{"""
-        for i, output in enumerate(prepared_outputs):
+        for i, output in enumerate(prepared_outputs[::-1]):
             verilog_outputs += f"{'' if i == 0 else ', '}{'-' if output < 0 else ''}{self.n_output_bits}'sd{abs(output)}"
         verilog_outputs += "};"
 

@@ -66,6 +66,16 @@ endmodule"""
         correct_output = self.generate_correct_output()
         sv = f"""//// COPY THE BELOW CODE ////
 
+logic rst;
+logic clk;
+logic shift_ena;
+logic [{self.n_sample_bits - 1}:0] next_sample;
+logic [{self.n_output_bits - 1}:0] out;
+logic signed [{self.n_output_bits}:0] diff;
+
+integer counter;
+logic [{self.n_output_bits - 1}:0] correct_out;
+
 {samples}
 {sample_array}
 

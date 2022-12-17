@@ -72,9 +72,10 @@ class ConfigureableFilter:
 // The block diagram of the FIR filter we build can be accessed in this github repo
 //////////////////////////////////////////////////////////////////////////////////////
 
-module fir(clk, rst, ena, sample, out);
+module fir(clk, rst, ena, filter_select, sample, out);
 
     input wire clk, rst, ena;
+    input wire filter_select;
     input wire [{self.n_sample_bits-1}:0] sample;
     output logic [{self.n_output_bits - 1}:0] out;
 
@@ -160,17 +161,20 @@ logic [{self.n_output_bits - 1}:0] correct_out;
         # self.N, beta = kaiserord(ripple_db, width)
 
         # Setting customized tap sizes instead
-        self.N = 10
+        self.N = 75
 
         # The cutoff frequency of the filter.
         cutoff_hz = 10.0
 
         # Use firwin with a Kaiser window to create a lowpass FIR filter.
         # self.taps = firwin(self.N, cutoff_hz/self.nyq_rate, window=('kaiser', beta))
-        self.taps = firwin(self.N, cutoff_hz/self.nyq_rate) 
+        self.taps = {}
+        self.taps["lowpass"] = firwin(self.N, cutoff_hz/self.nyq_rate, pass_zero = "lowpass")
+        self.taps["highpass"] = firwin(self.N, cutoff_hz/self.nyq_rate, pass_zero = "highpass")
+        self.n_different_filters = len(self.taps.keys())
 
         # Use lfilter to filter x with the FIR filter.
-        self.filtered_x = lfilter(self.taps, 1.0, self.x)
+        self.filtered_x = lfilter(self.taps["lowpass"], 1.0, self.x)
 
     def plot_filter_params(self):
         """
@@ -235,6 +239,13 @@ logic [{self.n_output_bits - 1}:0] correct_out;
 
         show()
 
+    def truncate_n_bits(self, num_array, bits):
+        return (num_array * 2**bits).astype(int)
+        
+    def num_to_verilog(self, num, bits, prefix = "sd"):
+        trunated_num = self.truncate_n_bits(num, bits)
+        return f"{'-' if trunated_num < 0 else ''}{self.n_tap_bits}'{prefix}{abs(trunated_num)}"
+
     def generate_taps(self):
         """
         This function writes the coefficients determined in generate_filter_params into taps in Verilog
@@ -243,17 +254,24 @@ logic [{self.n_output_bits - 1}:0] correct_out;
         # self.taps is defined in generate_filter_params. 
         # The coefficients we use in python are floating point numbers, so we multuply it by the bit number we use for the taps in verilog to turn it into an
         # amplified binary number
-        prepared_taps = (self.taps * 2**self.n_tap_bits).astype(int)
+        # prepared_taps = (self.taps * 2**self.n_tap_bits).astype(int)
 
         indent = " " * 4
-        verilog_taps = ""
+        mux_definition = ""
         # define the tap variables in verilog
         verilog_tap_definitions = f"{indent}logic signed [{self.n_tap_bits - 1}:0]"
         # in an always_comb block, assign tap variables with values generated from prepared_taps 
-        for i, tap in enumerate(prepared_taps):
+        for i in range(self.N):
+            mux_definition += f"{indent}mux{self.n_different_filters}_{self.n_tap_bits} tap{i}_mux (.a({{"
+            for j, set_of_taps in enumerate(self.taps.values()):
+                mux_definition += f"{('' if j == 0 else ', ')}{self.num_to_verilog(set_of_taps[i], self.n_tap_bits)}"
+            mux_definition += f"""}}), .s(filter_select), .y(tap{i});\n"""
             verilog_tap_definitions += (" " if i == 0 else ", ") + f"tap{i}"
-            verilog_taps += f"""{indent}always_comb tap{i} = {"-" if tap < 0 else ""}{self.n_tap_bits}'sd{abs(tap)};\n"""
         verilog_tap_definitions += ";"
+
+        # always_comb tap0 = 16'sd144;
+        # mux2(.a(tap0), .b(tap1), .s(), .y())
+
 
         # wire [7:0] a0, a1, a2, a3;
         # alawys_comb a0 = 5;
@@ -261,7 +279,7 @@ logic [{self.n_output_bits - 1}:0] correct_out;
         # alawys_comb a0 = 7;
         # alawys_comb a0 = 9;
 
-        return verilog_tap_definitions, verilog_taps
+        return verilog_tap_definitions, mux_definition
 
     def generate_multipliers(self):
         """
@@ -274,7 +292,7 @@ logic [{self.n_output_bits - 1}:0] correct_out;
 
         verilog_multiplied_definitions = f"{indent}logic signed [{self.n_sample_bits + self.n_tap_bits - 1}:0]"
         verilog_summation = f"{indent}always_comb out ="
-        for i in range(len(self.taps)):
+        for i in range(self.N):
             verilog_multiplied_definitions += (" " if i == 0 else ", ") + f"multiplied{i}"
             verilog_multipliers += f"""{indent}always_comb multiplied{i} = buf{i} * tap{i};\n"""
             verilog_summation += (" " if i == 0 else " + ") + f"multiplied{i}"
@@ -301,7 +319,7 @@ logic [{self.n_output_bits - 1}:0] correct_out;
         indent = " " * 4
         verilog_registers = ""
         verilog_buffers = f"{indent}logic signed [{self.n_sample_bits - 1}:0]"
-        for i in range(len(self.taps)):
+        for i in range(self.N):
             verilog_buffers += (" " if i == 0 else ", ") + f"buf{i}"
             verilog_registers += f"""{indent}register #(.N({self.n_tap_bits})) buffer{i}(.clk(clk), .ena(ena), .rst(rst), .d({"sample" if i == 0 else f"buf{i - 1}"}), .q(buf{i}));\n"""
         verilog_buffers += ";"
@@ -381,6 +399,6 @@ always_comb begin
 F = ConfigureableFilter()
 
 # Plot the desired outputs in python
-F.plot_filter_params()
+# F.plot_filter_params()
 
 print("Done!")

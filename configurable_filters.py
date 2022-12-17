@@ -7,7 +7,7 @@ from pylab import figure, clf, plot, xlabel, ylabel, xlim, ylim, title, grid, ax
 
 
 
-class FirGenerator:
+class ConfigureableFilter:
     def __init__(self, n: int = 400, hdl_dir: str = "./hdl", test_dir: str = "./tests") -> None:
         self.n_samples = n
         self.n_sample_bits = 16
@@ -40,15 +40,15 @@ class FirGenerator:
         The write_file function writes the content of the verilog code we generate into desired directories.
 
         If the code generated is aimed for test benches, we put it into the .txt file in the desired directory and
-        then take a next step to migrate it into test_fir.sv.
+        then take a next step to migrate it into test_configurable_filters.sv.
 
         Otherwise, we put the file into the main hdl directory.
 
         """
         if is_test:
-            filename = f"{self.test_dir}/fir_copy_code.txt"
+            filename = f"{self.test_dir}/configurable_filters_copy.txt"
         else:
-            filename = f"{self.hdl_dir}/fir.sv"
+            filename = f"{self.hdl_dir}/configurable_filters.sv"
 
         f = open(filename, "w")
         f.write(txt)
@@ -97,7 +97,7 @@ endmodule"""
 
     def generate_test_bench(self) -> str:
         """
-        This function defines the structure of test_fir.sv
+        This function defines the structure of test_configurable_filters.sv
 
         """
         sample_array = self.generate_sample_array()
@@ -157,13 +157,17 @@ logic [{self.n_output_bits - 1}:0] correct_out;
         ripple_db = 60.0
 
         # Compute the order and Kaiser parameter for the FIR filter.
-        self.N, beta = kaiserord(ripple_db, width)
+        # self.N, beta = kaiserord(ripple_db, width)
+
+        # Setting customized tap sizes instead
+        self.N = 10
 
         # The cutoff frequency of the filter.
         cutoff_hz = 10.0
 
         # Use firwin with a Kaiser window to create a lowpass FIR filter.
-        self.taps = firwin(self.N, cutoff_hz/self.nyq_rate, window=('kaiser', beta))
+        # self.taps = firwin(self.N, cutoff_hz/self.nyq_rate, window=('kaiser', beta))
+        self.taps = firwin(self.N, cutoff_hz/self.nyq_rate) 
 
         # Use lfilter to filter x with the FIR filter.
         self.filtered_x = lfilter(self.taps, 1.0, self.x)
@@ -340,10 +344,10 @@ always_comb begin
 
     def generate_correct_output(self):
         """
-        This function writes the correct outputs of the fir filter to the test benches in test_fir.sv
+        This function writes the correct outputs of the fir filter to the test benches in test_configurable_filters.sv
 
         The variable prepared_outputs calculates and stores the correct output of the fir filter in python,
-        and verilog_outputs turns prepared_outputs into verilog binary numbers and is returned to be written into test_fir.sv.
+        and verilog_outputs turns prepared_outputs into verilog binary numbers and is returned to be written into test_configurable_filters.sv.
 
         Similar to the output variable verilog_x_vals of generate_samples function, the output of this function (verilog_outputs) stores
         all the correct outputs as a first step. 
@@ -374,7 +378,7 @@ always_comb begin
         return verilog_output
 
 # Run the class
-F = FirGenerator()
+F = ConfigureableFilter()
 
 # Plot the desired outputs in python
 F.plot_filter_params()

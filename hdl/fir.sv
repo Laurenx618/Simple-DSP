@@ -2,6 +2,11 @@
 `default_nettype none
 `include "hdl/register.sv"
 
+//////////////////////////////////////////////////////////////////////////////////////
+// This is the main Verilog hdl file automatically generated from filter.py
+// The block diagram of the FIR filter we build can be accessed HERE(INSERT LINK)
+//////////////////////////////////////////////////////////////////////////////////////
+
 module fir(clk, rst, ena, sample, out);
 
     input wire clk, rst, ena;

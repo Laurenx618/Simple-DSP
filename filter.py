@@ -15,21 +15,24 @@ class FirGenerator:
         self.hdl_dir = hdl_dir
         self.test_dir = test_dir
 
+        # uses the sci-py library to find the number of taps and their coefficients for a desired filter behavior
+        self.generate_filter_params()
 
         """
         To calculate the length of final output in bits.
 
-        Each sample is first multiplied by its matching tab (coefficient). In the log2 scale log2(A*B) = log2(A) + log2(B), 
+        Each sample is first multiplied by its matching tap (coefficient). In the log2 scale log2(A*B) = log2(A) + log2(B), 
         so we add the sample bit length and tap (coefficient) length together. 
         
-        The second step is to sum up the products we derived from the previous step, which makes it a little trickier to calculate the bits. 
-
+        The second step is to sum up the products we derived from the previous step. Since there are self.N taps, 
+        the largest value we can get is self.N * A * B. So in the log2 scale, we require log2(A) + log2(B) + log2(self.N) bits, 
+        rounded up.
+        
         """
-        self.generate_filter_params()
-        self.n_output_bits = self.n_sample_bits + self.n_tap_bits + int(ceil(log2(len(self.taps))))
+        self.n_output_bits = self.n_sample_bits + self.n_tap_bits + int(ceil(log2(self.N)))
 
-        sv = self.generate_module()
-        test_code = self.generate_test_bench()
+        sv = self.generate_module() # main function to generate contents of fir.sv
+        test_code = self.generate_test_bench() # additional function to generate parts of test_fir.sv
 
         self.write_file(sv, is_test = False)
         self.write_file(test_code, is_test = True)
@@ -40,7 +43,7 @@ class FirGenerator:
         The write_file function writes the content of the verilog code we generate into desired directories.
 
         If the code generated is aimed for test benches, we put it into the .txt file in the desired directory and
-        then take a next step to migrate it into test_fir.sv.
+        then manually migrate it into test_fir.sv with copy and paste.
 
         Otherwise, we put the file into the main hdl directory.
 
@@ -50,26 +53,31 @@ class FirGenerator:
         else:
             filename = f"{self.hdl_dir}/fir.sv"
 
+        # write the file contents
         f = open(filename, "w")
         f.write(txt)
         f.close()
 
     def generate_module(self) -> str:
         """
-        This function generates the structure of the main FIR module.
-        It consists of three main parts: taps, multipliers and registers.
+        This function generates the structure of the main FIR module, fir.sv.
+        It consists of three main parts: tap definitions, multipliers, and shift registers for the sampled values.
+        
+        First, we call functions to generate each of these pieces, then we concatenate them all together into the .sv file
+        using an f-string to create the skeleton of the file.
         
         """
         tap_definitions, taps = self.generate_taps()
         verilog_multiplied_definitions, verilog_multipliers, verilog_summation = self.generate_multipliers()
         verilog_buffers, verilog_registers = self.generate_registers()
-        sv = f"""`timescale 1ns/1ps
+        
+        file_contents = f"""`timescale 1ns/1ps
 `default_nettype none
 `include "hdl/register.sv"
 
 //////////////////////////////////////////////////////////////////////////////////////
 // This is the main Verilog hdl file automatically generated from filter.py
-// The block diagram of the FIR filter we build can be accessed in this github repo
+// The block diagram of the FIR filter we build can be accessed HERE(INSERT LINK)
 //////////////////////////////////////////////////////////////////////////////////////
 
 module fir(clk, rst, ena, sample, out);
@@ -93,18 +101,23 @@ module fir(clk, rst, ena, sample, out);
 {verilog_summation}
 
 endmodule"""
-        return sv
+        return file_contents
 
     def generate_test_bench(self) -> str:
         """
-        This function defines the structure of test_fir.sv
+        This function defines the structure of the testbench, test_fir.sv.
+        It consists of a set of sample data to be read in, as well as the expected (correct) outputs from the filter at each
+        time step, as calculated by the sci-py library.
+        
+        First, we call functions to generate discrete chunks of the file, then concatenate them together using an f-string.
 
         """
         sample_array = self.generate_sample_array()
         output_array = self.generate_output_array()
         samples = self.generate_samples()
         correct_output = self.generate_correct_output()
-        sv = f"""//// COPY THE BELOW CODE ////
+        
+        file_contents = f"""//// COPY THE BELOW CODE ////
 //
 logic rst;
 logic clk;
@@ -123,7 +136,7 @@ logic [{self.n_output_bits - 1}:0] correct_out;
 {output_array}
 
 """
-        return sv
+        return file_contents
 
     def generate_filter_params(self):
         """
@@ -170,7 +183,7 @@ logic [{self.n_output_bits - 1}:0] correct_out;
 
     def plot_filter_params(self):
         """
-        This function plots the output in python so that we can compare the it with the results from our Verilog code in gtkwaves.
+        This function plots the output in python so that we can compare the it with the results from our Verilog code in GTKwave.
         
         """
         #------------------------------------------------
@@ -237,25 +250,28 @@ logic [{self.n_output_bits - 1}:0] correct_out;
 
         """
         # self.taps is defined in generate_filter_params. 
-        # The coefficients we use in python are floating point numbers, so we multuply it by the bit number we use for the taps in verilog to turn it into an
-        # amplified binary number
+        # The coefficients we use in python are floating point numbers, so we multiply it by the bit number we use for the taps in verilog 
+        # to turn it into a fixed-point number, which we store as an integer
         prepared_taps = (self.taps * 2**self.n_tap_bits).astype(int)
 
         indent = " " * 4
         verilog_taps = ""
+        
         # define the tap variables in verilog
         verilog_tap_definitions = f"{indent}logic signed [{self.n_tap_bits - 1}:0]"
+        
         # in an always_comb block, assign tap variables with values generated from prepared_taps 
         for i, tap in enumerate(prepared_taps):
             verilog_tap_definitions += (" " if i == 0 else ", ") + f"tap{i}"
             verilog_taps += f"""{indent}always_comb tap{i} = {"-" if tap < 0 else ""}{self.n_tap_bits}'sd{abs(tap)};\n"""
         verilog_tap_definitions += ";"
 
-        # wire [7:0] a0, a1, a2, a3;
-        # alawys_comb a0 = 5;
-        # alawys_comb a0 = 6;
-        # alawys_comb a0 = 7;
-        # alawys_comb a0 = 9;
+        # // generate an output that looks like: 
+        # logic signed [7:0] a0, a1, a2, a3;
+        # alawys_comb a0 = 51;
+        # alawys_comb a0 = 688;
+        # alawys_comb a0 = 700;
+        # alawys_comb a0 = 93;
 
         return verilog_tap_definitions, verilog_taps
 
@@ -263,13 +279,19 @@ logic [{self.n_output_bits - 1}:0] correct_out;
         """
         This function does all the math calculations of the fir filter in verilog.
         It first defines the multipled numbers and the sum of them, and then assigns values in the always_comb block.
-        buf{i} represents the sample, and tap{i} represents the FIR filter coefficients.
+        `buf{i}` represents the sample to be multiplied by the i'th tap coefficient, `tap{i}`.
+        
         """
         indent = " " * 4
         verilog_multipliers = ""
 
+        # define the results of each multiplication, to store them before they are added together
         verilog_multiplied_definitions = f"{indent}logic signed [{self.n_sample_bits + self.n_tap_bits - 1}:0]"
+        
+        # define the summation statement (behavioral)
         verilog_summation = f"{indent}always_comb out ="
+        
+        # generate the multiplication statements (behavioural)
         for i in range(len(self.taps)):
             verilog_multiplied_definitions += (" " if i == 0 else ", ") + f"multiplied{i}"
             verilog_multipliers += f"""{indent}always_comb multiplied{i} = buf{i} * tap{i};\n"""
@@ -277,11 +299,13 @@ logic [{self.n_output_bits - 1}:0] correct_out;
         verilog_summation += ";"
         verilog_multiplied_definitions += ";"
 
+        # // generated output looks like: 
+        # logic signed [7:0] multiplied0, multiplied1, multiplied2, multiplied3
         # always_comb begin
-        # multiplied0 = buff0*a0;
-        # multiplied1 = buff1*a1;
-        # multiplied2 = buff2*a2;
-        # multiplied3 = buff3*a3;
+            # multiplied0 = buff0*a0;
+            # multiplied1 = buff1*a1;
+            # multiplied2 = buff2*a2;
+            # multiplied3 = buff3*a3;
         # end
         # always_comb out = multiplied0 + multiplied1 + multiplied2 + multiplied3;
 
@@ -289,19 +313,22 @@ logic [{self.n_output_bits - 1}:0] correct_out;
 
     def generate_registers(self):
         """
-        This function generates the registers that shifts each sample to the next tap to be multiplied,
+        This function generates the registers to shift each sample to the next tap to be multiplied,
         according to the defination of an FIR filter that y[n] = a0 * x[n] + a1 * x[n-1] + a2 * x[n-2] + ... + aN * x[n-N],
         where y[n] is the output signal, x[n] is the input signal, n determins the size of input and output signals, 
-        N is the order of the FIR filter, and a is the pre-calculated coefficients (or taps).
+        N is the order (number of taps) of the FIR filter, and a is the pre-calculated coefficients (or taps).
+        
         """
         indent = " " * 4
         verilog_registers = ""
+        
         verilog_buffers = f"{indent}logic signed [{self.n_sample_bits - 1}:0]"
         for i in range(len(self.taps)):
             verilog_buffers += (" " if i == 0 else ", ") + f"buf{i}"
             verilog_registers += f"""{indent}register #(.N({self.n_tap_bits})) buffer{i}(.clk(clk), .ena(ena), .rst(rst), .d({"sample" if i == 0 else f"buf{i - 1}"}), .q(buf{i}));\n"""
         verilog_buffers += ";"
 
+        # // generated output looks like: 
         # register(.clk(clk), .ena(ena), .rst(rst), .d(sample), .q(buff0));
         # register(.clk(clk), .ena(ena), .rst(rst), .d(buff0), .q(buff1));
         # register(.clk(clk), .ena(ena), .rst(rst), .d(buff1), .q(buff2));
@@ -313,6 +340,7 @@ logic [{self.n_output_bits - 1}:0] correct_out;
         """
         This function writes the python-generated samples into packed_samples, which is a single variable that stores all
         the 16-bit samples, i.e. the first 16 bits of packed_samples represents the first sample, and bit #16-31 represents the second sample, etc.
+        
         """
         prepared_x_vals = (self.x * 2**(self.n_sample_bits - 4)).astype(int)
 
@@ -326,8 +354,9 @@ always_comb packed_samples = {{"""
 
     def generate_sample_array(self):
         """
-        Takes packed_samples from generate_samples function as an input and break it down into a sample array, 
+        This function takes packed_samples from the generate_samples() function as an input and breaks it down into a sample array, 
         i.e. creates 400 individual samples
+        
         """
         verilog_samples = f"""logic [{self.n_sample_bits - 1}:0] samples[0:{self.n_samples - 1}];
 always_comb begin 
@@ -345,9 +374,10 @@ always_comb begin
         The variable prepared_outputs calculates and stores the correct output of the fir filter in python,
         and verilog_outputs turns prepared_outputs into verilog binary numbers and is returned to be written into test_fir.sv.
 
-        Similar to the output variable verilog_x_vals of generate_samples function, the output of this function (verilog_outputs) stores
+        Similar to the output variable verilog_x_vals of generate_samples() function, the output of this function (verilog_outputs) stores
         all the correct outputs as a first step. 
         i.e., the first 16 bits of verilog_outputs represents the first individual correct output, and bit #16-31 represents the second output, etc.
+        
         """
         prepared_outputs = (self.filtered_x * 2**(self.n_sample_bits - 4 + self.n_tap_bits)).astype(int)
 
@@ -362,7 +392,8 @@ always_comb packed_outputs = {{"""
     def generate_output_array(self):
         """
         Similar to the output variable verilog_samples of the function generate_sample_array, the output of this function
-        breaks down verilog_outputs from the previous function generate_correct_output into an output array consisting of 400 individual outputs.
+        breaks down verilog_outputs from the previous function generate_correct_output() into an output array consisting of 400 individual outputs.
+        
         """
         verilog_output = f"""logic [{self.n_output_bits - 1}:0] correct_outputs[0:{self.n_samples - 1}];
 always_comb begin
